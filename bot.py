@@ -10,10 +10,22 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.request import HTTPXRequest
 import yt_dlp
 
-TOKEN = '8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc'
+TOKEN = os.environ.get("BOT_TOKEN", "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc")
 
-# Track unique users who use the bot
-user_ids = set()
+# File to permanently save user IDs
+USER_FILE = "users.txt"
+
+def load_users() -> set:
+    if os.path.exists(USER_FILE):
+        with open(USER_FILE, "r") as f:
+            return set(line.strip() for line in f if line.strip())
+    return set()
+
+def save_user(user_id: int):
+    users = load_users()
+    if str(user_id) not in users:
+        with open(USER_FILE, "a") as f:
+            f.write(f"{user_id}\n")
 
 # Simple HTTP Server to keep Render Web Service healthy
 class HealthCheckHandler(BaseHTTPRequestHandler):
@@ -53,7 +65,7 @@ def clean_error_message(error_str: str) -> str:
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user:
-        user_ids.add(update.effective_user.id)
+        save_user(update.effective_user.id)
         
     await update.message.reply_text(
         "👋 Welcome to Seid Video Downloader!\n\n"
@@ -66,12 +78,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    total_users = len(user_ids)
+    users = load_users()
+    total_users = len(users)
     await update.message.reply_text(f"📊 Total unique users tracked: {total_users}")
 
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user:
-        user_ids.add(update.effective_user.id)
+        save_user(update.effective_user.id)
 
     text = update.message.text.strip()
     
@@ -163,7 +176,6 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
 def main():
-    # Start health check server in background thread for Render
     threading.Thread(target=run_health_check_server, daemon=True).start()
 
     request = HTTPXRequest(connect_timeout=60.0, read_timeout=300.0, write_timeout=300.0)
@@ -177,4 +189,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

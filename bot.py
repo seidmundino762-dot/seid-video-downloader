@@ -12,6 +12,9 @@ import yt_dlp
 
 TOKEN = '8629569320:AAHBBZiBr8eWDh8pHnoanQVhwj0zWZ92DhM'
 
+# Track unique users who use the bot
+user_ids = set()
+
 # Simple HTTP Server to keep Render Web Service healthy
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -49,6 +52,9 @@ def clean_error_message(error_str: str) -> str:
     return cleaned.strip()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user:
+        user_ids.add(update.effective_user.id)
+        
     await update.message.reply_text(
         "👋 Welcome to Seid Video Downloader!\n\n"
         "Send me any link from:\n"
@@ -59,7 +65,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "💡 Tip: Add 'audio' or 'mp3' after a link to download audio only!"
     )
 
+async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_users = len(user_ids)
+    await update.message.reply_text(f"📊 Total unique users tracked: {total_users}")
+
 async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user:
+        user_ids.add(update.effective_user.id)
+
     text = update.message.text.strip()
     
     if not text.startswith(('http://', 'https://')):
@@ -156,6 +169,7 @@ def main():
     request = HTTPXRequest(connect_timeout=60.0, read_timeout=300.0, write_timeout=300.0)
     app = Application.builder().token(TOKEN).request(request).build()
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media))
 
     print("Bot is running...")
@@ -163,3 +177,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+

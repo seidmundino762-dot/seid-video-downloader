@@ -10,7 +10,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telegram.request import HTTPXRequest
 import yt_dlp
 
-TOKEN = '8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc'
+TOKEN = 'TOKEN = '8629569320:AAHBBZiBr8eWDh8pHnoanQVhwj0zWZ92DhM'
+'
 
 # Simple HTTP Server to keep Render Web Service healthy
 class HealthCheckHandler(BaseHTTPRequestHandler):

@@ -1,4 +1,5 @@
 import os
+import uuid
 import asyncio
 import logging
 import yt_dlp
@@ -31,10 +32,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message."""
     await update.message.reply_text("Just send me a direct link to any supported video platform.")
 
-async def get_real_url(url: str) -> str:
-    """Helper to clean and prepare URLs."""
-    return url.strip()
-
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages containing video URLs."""
     text = update.message.text
@@ -45,14 +42,15 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     
     # Extract the actual URL
-    raw_url = text.split()[0]
+    raw_url = text.split()[0].strip()
 
     msg = await update.message.reply_text("⏳ Processing your link, please wait...")
 
-    url = await get_real_url(raw_url)
-    output_template = "downloaded_media.%(ext)s"
+    # Unique output template using UUID to prevent HTTP 416 file collision errors
+    unique_id = str(uuid.uuid4())[:8]
+    output_template = f"download_{unique_id}_%(id)s.%(ext)s"
 
-    # Base options optimized for YouTube bypass
+    # Base configuration optimized for YouTube & Facebook
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -60,10 +58,10 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'socket_timeout': 30,
         'retries': 10,
         'geo_bypass': True,
+        'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'mweb'],
-                'skip': ['webpage', 'configs'],
+                'player_client': ['android', 'ios', 'web'],
             }
         },
     }
@@ -79,18 +77,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
 
-    # Check for cookies file
+    # Check for cookies file dynamically
     if os.path.exists('cookies.txt'):
         ydl_opts['cookiefile'] = 'cookies.txt'
 
     loop = asyncio.get_running_loop()
+    file_path = None
 
     try:
         def extract():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                info = ydl.extract_info(raw_url, download=True)
                 filename = ydl.prepare_filename(info)
-                if audio_only and not filename.endswith('.mp3'):
+                
+                # Adjust extension if postprocessor changed it to mp3
+                if audio_only:
                     base, _ = os.path.splitext(filename)
                     filename = f"{base}.mp3"
                 return info, filename
@@ -115,13 +116,17 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await msg.delete()
 
-        # Clean up local file
-        if os.path.exists(file_path):
-            os.remove(file_path)
-
     except Exception as e:
-        logger.error(f"Error processing URL {url}: {e}")
+        logger.error(f"Error processing URL {raw_url}: {e}")
         await msg.edit_text(f"❌ Download Error:\n{str(e)}")
+
+    finally:
+        # Clean up any leftover matching files
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
 
 def main():
     """Start the bot."""

@@ -46,11 +46,11 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("⏳ Processing your link, please wait...")
 
-    # Unique output template using UUID to prevent HTTP 416 file collision errors
+    # Unique output pattern prevents collision & HTTP 416 errors on cloud environments
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"download_{unique_id}_%(id)s.%(ext)s"
 
-    # Base configuration optimized for YouTube & Facebook
+    # Base configuration incorporating the screenshot's 720p limit + anti-bot client emulation
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -61,23 +61,23 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web'],
+                'player_client': ['android', 'ios', 'mweb'],
             }
         },
     }
 
-    # Format selector based on video vs audio request
+    # Format logic from your screenshot adapted for fast processing
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': '128',
         }]
     else:
-        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        ydl_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio/best'
 
-    # Check for cookies file dynamically
+    # Check for cookies file if available
     if os.path.exists('cookies.txt'):
         ydl_opts['cookiefile'] = 'cookies.txt'
 
@@ -85,43 +85,45 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = None
 
     try:
-        def extract():
+        def run_ytdlp():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(raw_url, download=True)
                 filename = ydl.prepare_filename(info)
                 
-                # Adjust extension if postprocessor changed it to mp3
+                # Adjust extension if FFmpeg extracted audio to mp3
                 if audio_only:
                     base, _ = os.path.splitext(filename)
                     filename = f"{base}.mp3"
                 return info, filename
 
-        info_dict, file_path = await loop.run_in_executor(None, extract)
+        info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
         await msg.edit_text("⬆️ Uploading to Telegram...")
 
-        with open(file_path, 'rb') as media_file:
-            if audio_only:
-                await update.message.reply_audio(
-                    audio=media_file,
-                    title=info_dict.get('title', 'Audio'),
-                    performer=info_dict.get('uploader', 'Seid Downloader')
-                )
-            else:
-                await update.message.reply_video(
-                    video=media_file,
-                    caption=info_dict.get('title', 'Downloaded Video'),
-                    supports_streaming=True
-                )
-
-        await msg.delete()
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            with open(file_path, 'rb') as media_file:
+                if audio_only:
+                    await update.message.reply_audio(
+                        audio=media_file,
+                        title=info_dict.get('title', 'Audio'),
+                        performer=info_dict.get('uploader', 'Seid Downloader')
+                    )
+                else:
+                    await update.message.reply_video(
+                        video=media_file,
+                        caption=info_dict.get('title', 'Downloaded Video'),
+                        supports_streaming=True
+                    )
+            await msg.delete()
+        else:
+            await msg.edit_text("❌ Download failed: File was empty or missing.")
 
     except Exception as e:
         logger.error(f"Error processing URL {raw_url}: {e}")
         await msg.edit_text(f"❌ Download Error:\n{str(e)}")
 
     finally:
-        # Clean up any leftover matching files
+        # Clean up temporary download file
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)

@@ -1,214 +1,107 @@
 import os
-import re
 import asyncio
-import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import httpx
-from urllib.parse import urlparse, urlunparse
+import logging
+import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from telegram.request import HTTPXRequest
-import yt_dlp
 
-TOKEN = os.environ.get("BOT_TOKEN", "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc")
+# Logging configuration
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-# Permanent File Storage for Stats
-USER_FILE = "users.txt"
-
-def load_users() -> set:
-    if os.path.exists(USER_FILE):
-        with open(USER_FILE, "r") as f:
-            return set(line.strip() for line in f if line.strip())
-    return set()
-
-def save_user(user_id: int):
-    users = load_users()
-    if str(user_id) not in users:
-        with open(USER_FILE, "a") as f:
-            f.write(f"{user_id}\n")
-
-# Health Check HTTP Server for Render
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is alive!")
-
-def run_health_check_server():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    server.serve_forever()
-
-def clean_url(url: str) -> str:
-    parsed = urlparse(url)
-    if "facebook.com" in parsed.netloc or "fb.watch" in parsed.netloc or "instagram.com" in parsed.netloc:
-        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
-    return url
-
-async def get_real_url(url: str) -> str:
-    url = clean_url(url)
-    if "facebook.com/share/" in url or "fb.watch/" in url:
-        try:
-            async with httpx.AsyncClient(follow_redirects=True, timeout=10.0) as client:
-                headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-                res = await client.head(url, headers=headers)
-                return clean_url(str(res.url))
-        except Exception:
-            pass
-    return url
-
-def clean_error_message(error_str: str) -> str:
-    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    cleaned = ansi_escape.sub('', str(error_str))
-    cleaned = re.sub(r'\[\d+;\d+m', '', cleaned)
-    return cleaned.strip()
+# Environment variables
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user:
-        save_user(update.effective_user.id)
-        
-    await update.message.reply_text(
-        "👋 Welcome to Seid Video Downloader!\n\n"
-        "Send me any link from:\n"
-        "• YouTube (Videos & Shorts)\n"
-        "• TikTok (Videos)\n"
-        "• Facebook (Videos & Reels)\n"
-        "• Instagram (Reels & Posts)\n\n"
-        "💡 Tip: Add 'audio' or 'mp3' after a link to download audio only!"
+    """Send a message when the command /start is issued."""
+    user = update.effective_user
+    await update.message.reply_html(
+        f"Hi {user.mention_html()}!\n\n"
+        "Send me a video link from YouTube, TikTok, Instagram, Facebook, or Twitter, and I will download it for you!"
     )
 
-async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = load_users()
-    total_users = len(users)
-    await update.message.reply_text(f"📊 Total unique users tracked: {total_users}")
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a message when the command /help is issued."""
+    await update.message.reply_text("Just send me a direct link to any supported video platform.")
 
-async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user:
-        save_user(update.effective_user.id)
+async def get_real_url(url: str) -> str:
+    """Helper to un-shorten links or strip tracking query parameters."""
+    return url.strip()
 
-    text = update.message.text.strip()
-    
-    if not text.startswith(('http://', 'https://')):
+async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle incoming messages containing video URLs."""
+    raw_url = update.message.text
+    if not raw_url or not raw_url.startswith(("http://", "https://")):
         return
 
-    audio_only = "audio" in text.lower() or "mp3" in text.lower()
-    raw_url = text.split()[0]
-
-    if "/photo/" in raw_url:
-        await update.message.reply_text("⚠️ This is a TikTok Photo Slideshow. Please send a direct TikTok Video link instead!")
-        return
-
-    msg = await update.message.reply_text("⏳ Processing link... downloading media...")
+    msg = await update.message.reply_text("⏳ Processing your link, please wait...")
 
     url = await get_real_url(raw_url)
     output_template = "downloaded_media.%(ext)s"
 
-    # Base options safe for ALL platforms
-        base_ydl_opts = {
-    'cookiefile': 'cookies.txt',
-    'extractor_args': {
-        'youtube': {
-            'player_client': ['android', 'ios'],
-        }
-    },
-    'outtmpl': output_template,
-    'quiet': True,
-    'no_warnings': True,
-    'socket_timeout': 30,
-    'retries': 5,
-    'geo_bypass': True,
-}
-
-    # Platform Routing Logic
-    is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
-
-    if is_youtube:
-        # YouTube Specific Workarounds
-        base_ydl_opts['extractor_args'] = {
+    # Base options configured with cookies and client overrides
+    base_ydl_opts = {
+        'cookiefile': 'cookies.txt',
+        'extractor_args': {
             'youtube': {
-                'player_client': ['mweb', 'android', 'web']
+                'player_client': ['android', 'ios'],
             }
-        }
-        if audio_only:
-            base_ydl_opts['format'] = 'bestaudio/best'
-            base_ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',
-            }]
-        else:
-            base_ydl_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio/best'
-    else:
-        # Non-YouTube Platforms (TikTok, IG, FB)
-        if audio_only:
-            base_ydl_opts['format'] = 'bestaudio/best'
-            base_ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '128',
-            }]
-        else:
-            base_ydl_opts['format'] = 'best/bestvideo+bestaudio'
+        },
+        'outtmpl': output_template,
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 30,
+        'retries': 5,
+        'geo_bypass': True,
+    }
 
     loop = asyncio.get_running_loop()
 
-    def run_ytdlp():
-        with yt_dlp.YoutubeDL(base_ydl_opts) as ydl:
-            ydl.download([url])
-
     try:
-        await loop.run_in_executor(None, run_ytdlp)
+        def extract():
+            with yt_dlp.YoutubeDL(base_ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=True)
+                filename = ydl.prepare_filename(info)
+                return info, filename
 
-        downloaded_file = None
-        for file in os.listdir('.'):
-            if file.startswith("downloaded_media."):
-                if os.path.exists(file) and os.path.getsize(file) > 0:
-                    downloaded_file = file
-                    break
-                else:
-                    try:
-                        os.remove(file)
-                    except Exception:
-                        pass
+        info_dict, file_path = await loop.run_in_executor(None, extract)
 
-        if downloaded_file:
-            await msg.edit_text("📤 Uploading to Telegram...")
-            
-            with open(downloaded_file, 'rb') as media:
-                if audio_only or downloaded_file.endswith('.mp3'):
-                    await update.message.reply_audio(audio=media, write_timeout=300, read_timeout=300)
-                else:
-                    try:
-                        await update.message.reply_video(video=media, write_timeout=300, read_timeout=300)
-                    except Exception:
-                        await update.message.reply_document(document=media, write_timeout=300, read_timeout=300)
+        await msg.edit_text("⬆️ Uploading video to Telegram...")
 
-            os.remove(downloaded_file)
-            await msg.delete()
-        else:
-            await msg.edit_text("❌ Could not download this media. Please ensure the post is public.")
+        with open(file_path, 'rb') as video_file:
+            await update.message.reply_video(
+                video=video_file,
+                caption=info_dict.get('title', 'Downloaded Video'),
+                supports_streaming=True
+            )
+
+        await msg.delete()
+
+        # Clean up local file after sending
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     except Exception as e:
-        clean_err = clean_error_message(str(e))
-        await msg.edit_text(f"❌ Download Error:\n{clean_err}")
-        for file in os.listdir('.'):
-            if file.startswith("downloaded_media."):
-                try:
-                    os.remove(file)
-                except Exception:
-                    pass
+        logger.error(f"Error processing URL {url}: {e}")
+        await msg.edit_text(f"❌ Download Error:\n{str(e)}")
 
 def main():
-    threading.Thread(target=run_health_check_server, daemon=True).start()
+    """Start the bot."""
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN environment variable is not set!")
+        return
 
-    request = HTTPXRequest(connect_timeout=60.0, read_timeout=300.0, write_timeout=300.0)
-    app = Application.builder().token(TOKEN).request(request).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("stats", stats))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_media))
+    application = Application.builder().token(BOT_TOKEN).build()
 
-    print("Bot is running...")
-    app.run_polling()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
+
+    logger.info("Bot starting polling...")
+    application.run_polling()
 
 if __name__ == '__main__':
     main()

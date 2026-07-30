@@ -12,7 +12,7 @@ import yt_dlp
 
 TOKEN = os.environ.get("BOT_TOKEN", "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc")
 
-# File to permanently save user IDs
+# Permanent File Storage for Stats
 USER_FILE = "users.txt"
 
 def load_users() -> set:
@@ -27,7 +27,7 @@ def save_user(user_id: int):
         with open(USER_FILE, "a") as f:
             f.write(f"{user_id}\n")
 
-# Simple HTTP Server to keep Render Web Service healthy
+# Health Check HTTP Server for Render
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -103,6 +103,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     url = await get_real_url(raw_url)
     output_template = "downloaded_media.%(ext)s"
 
+    # Base options safe for ALL platforms
     base_ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -113,19 +114,36 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'no_color': True,
     }
 
-    if audio_only:
-        base_ydl_opts.update({
-            'format': 'bestaudio/best',
-            'postprocessors': [{
+    # Platform Routing Logic
+    is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()
+
+    if is_youtube:
+        # YouTube Specific Workarounds
+        base_ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['mweb', 'android', 'web']
+            }
+        }
+        if audio_only:
+            base_ydl_opts['format'] = 'bestaudio/best'
+            base_ydl_opts['postprocessors'] = [{
                 'key': 'FFmpegExtractAudio',
                 'preferredcodec': 'mp3',
                 'preferredquality': '128',
-            }],
-        })
+            }]
+        else:
+            base_ydl_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio/best'
     else:
-        base_ydl_opts.update({
-            'format': 'best[height<=720]/bestvideo[height<=720]+bestaudio/best',
-        })
+        # Non-YouTube Platforms (TikTok, IG, FB)
+        if audio_only:
+            base_ydl_opts['format'] = 'bestaudio/best'
+            base_ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '128',
+            }]
+        else:
+            base_ydl_opts['format'] = 'best/bestvideo+bestaudio'
 
     loop = asyncio.get_running_loop()
 
@@ -163,7 +181,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
             os.remove(downloaded_file)
             await msg.delete()
         else:
-            await msg.edit_text("❌ Could not download this media. Please ensure the video post is public.")
+            await msg.edit_text("❌ Could not download this media. Please ensure the post is public.")
 
     except Exception as e:
         clean_err = clean_error_message(str(e))

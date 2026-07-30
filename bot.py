@@ -105,16 +105,19 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Base options safe for ALL platforms
         base_ydl_opts = {
-        'cookiefile': 'cookies.txt',  # <--- ADD THIS LINE HERE
-        'outtmpl': output_template,
-        'quiet': True,
-        'no_warnings': True,
-        'socket_timeout': 30,
-        'retries': 5,
-        'geo_bypass': True,
-        'no_color': True,
-    }
-
+    'cookiefile': 'cookies.txt',
+    'extractor_args': {
+        'youtube': {
+            'player_client': ['android', 'ios'],
+        }
+    },
+    'outtmpl': output_template,
+    'quiet': True,
+    'no_warnings': True,
+    'socket_timeout': 30,
+    'retries': 5,
+    'geo_bypass': True,
+}
 
     # Platform Routing Logic
     is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()

@@ -1,5 +1,4 @@
 import os
-import uuid
 import asyncio
 import logging
 import yt_dlp
@@ -32,6 +31,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send help message."""
     await update.message.reply_text("Just send me a direct link to any supported video platform.")
 
+async def get_real_url(url: str) -> str:
+    """Helper to clean and prepare URLs."""
+    return url.strip()
+
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle incoming messages containing video URLs."""
     text = update.message.text
@@ -42,15 +45,14 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     
     # Extract the actual URL
-    raw_url = text.split()[0].strip()
+    raw_url = text.split()[0]
 
     msg = await update.message.reply_text("⏳ Processing your link, please wait...")
 
-    # Unique output pattern prevents collision & HTTP 416 errors on cloud environments
-    unique_id = str(uuid.uuid4())[:8]
-    output_template = f"download_{unique_id}_%(id)s.%(ext)s"
+    url = await get_real_url(raw_url)
+    output_template = "downloaded_media.%(ext)s"
 
-    # Base configuration incorporating the screenshot's 720p limit + anti-bot client emulation
+    # Base options optimized for YouTube bypass
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -58,77 +60,68 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'socket_timeout': 30,
         'retries': 10,
         'geo_bypass': True,
-        'nocheckcertificate': True,
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'mweb'],
+                'player_client': ['ios', 'android', 'mweb'],
+                'skip': ['webpage', 'configs'],
             }
         },
     }
 
-    # Format logic from your screenshot adapted for fast processing
+    # Format selector based on video vs audio request
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '128',
+            'preferredquality': '192',
         }]
     else:
-        ydl_opts['format'] = 'best[height<=720]/bestvideo[height<=720]+bestaudio/best'
+        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
 
-    # Check for cookies file if available
+    # Check for cookies file
     if os.path.exists('cookies.txt'):
         ydl_opts['cookiefile'] = 'cookies.txt'
 
     loop = asyncio.get_running_loop()
-    file_path = None
 
     try:
-        def run_ytdlp():
+        def extract():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(raw_url, download=True)
+                info = ydl.extract_info(url, download=True)
                 filename = ydl.prepare_filename(info)
-                
-                # Adjust extension if FFmpeg extracted audio to mp3
-                if audio_only:
+                if audio_only and not filename.endswith('.mp3'):
                     base, _ = os.path.splitext(filename)
                     filename = f"{base}.mp3"
                 return info, filename
 
-        info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
+        info_dict, file_path = await loop.run_in_executor(None, extract)
 
         await msg.edit_text("⬆️ Uploading to Telegram...")
 
-        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
-            with open(file_path, 'rb') as media_file:
-                if audio_only:
-                    await update.message.reply_audio(
-                        audio=media_file,
-                        title=info_dict.get('title', 'Audio'),
-                        performer=info_dict.get('uploader', 'Seid Downloader')
-                    )
-                else:
-                    await update.message.reply_video(
-                        video=media_file,
-                        caption=info_dict.get('title', 'Downloaded Video'),
-                        supports_streaming=True
-                    )
-            await msg.delete()
-        else:
-            await msg.edit_text("❌ Download failed: File was empty or missing.")
+        with open(file_path, 'rb') as media_file:
+            if audio_only:
+                await update.message.reply_audio(
+                    audio=media_file,
+                    title=info_dict.get('title', 'Audio'),
+                    performer=info_dict.get('uploader', 'Seid Downloader')
+                )
+            else:
+                await update.message.reply_video(
+                    video=media_file,
+                    caption=info_dict.get('title', 'Downloaded Video'),
+                    supports_streaming=True
+                )
+
+        await msg.delete()
+
+        # Clean up local file
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
     except Exception as e:
-        logger.error(f"Error processing URL {raw_url}: {e}")
+        logger.error(f"Error processing URL {url}: {e}")
         await msg.edit_text(f"❌ Download Error:\n{str(e)}")
-
-    finally:
-        # Clean up temporary download file
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
 
 def main():
     """Start the bot."""

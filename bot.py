@@ -1,74 +1,73 @@
 import os
+import uuid
 import asyncio
 import logging
 import yt_dlp
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# Logging configuration
+# Logging setup
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Environment variables
+# Environment variable
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send custom welcome message when /start is issued."""
-    await update.message.reply_html(
-        "👋 Welcome to Seid Video Downloader!\n\n"
-        "Send me any link from:\n"
-        "• YouTube (Videos & Shorts)\n"
-        "• TikTok (Videos)\n"
-        "• Facebook (Videos & Reels)\n"
-        "• Instagram (Reels & Posts)\n\n"
-        "💡 Tip: Add 'audio' or 'mp3' after a YouTube link to download audio only!"
+    """Sends a stylish welcome interface when /start is issued."""
+    welcome_text = (
+        "<b>✨ Welcome to Seid Media Downloader ✨</b>\n"
+        "━━━━━━━ • ━━━━━━━\n\n"
+        "⚡ <i>Fast & Free Social Media Video Downloader</i>\n\n"
+        "<b>Supported Platforms:</b>\n"
+        "📱 <b>TikTok</b> — Videos & Audio\n"
+        "📸 <b>Instagram</b> — Reels & Posts\n"
+        "🌐 <b>Facebook</b> — Public Videos & Reels\n\n"
+        "<b>💡 How to use:</b>\n"
+        "1. Simply paste your link here in the chat.\n"
+        "2. Add <code>audio</code> or <code>mp3</code> after your link to get sound only!\n\n"
+        "━━━━━━━ • ━━━━━━━\n"
+        "🚀 <i>Send me a link to get started!</i>"
     )
+    await update.message.reply_html(welcome_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Send help message."""
-    await update.message.reply_text("Just send me a direct link to any supported video platform.")
-
-async def get_real_url(url: str) -> str:
-    """Helper to clean and prepare URLs."""
-    return url.strip()
+    """Sends help instructions."""
+    await update.message.reply_html(
+        "<b>📖 Need Help?</b>\n\n"
+        "Just copy any link from TikTok, Instagram, or Facebook and send it to me.\n"
+        "Example: <code>https://vt.tiktok.com/example/ mp3</code>"
+    )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages containing video URLs."""
+    """Processes incoming links from TikTok, Instagram, and Facebook."""
     text = update.message.text
     if not text or not text.startswith(("http://", "https://")):
         return
 
-    # Check if audio only is requested
+    # Check for audio request
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
-    
-    # Extract the actual URL
-    raw_url = text.split()[0]
+    raw_url = text.split()[0].strip()
 
-    msg = await update.message.reply_text("⏳ Processing your link, please wait...")
+    msg = await update.message.reply_text("⚡ <i>Processing link, please wait...</i>", parse_mode="HTML")
 
-    url = await get_real_url(raw_url)
-    output_template = "downloaded_media.%(ext)s"
+    # Unique file name generator
+    unique_id = str(uuid.uuid4())[:8]
+    output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # Base options optimized for YouTube bypass
+    # Fast yt-dlp config for non-YouTube platforms
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 30,
-        'retries': 10,
-        'geo_bypass': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['ios', 'android', 'mweb'],
-                'skip': ['webpage', 'configs'],
-            }
-        },
+        'retries': 5,
+        'nocheckcertificate': True,
     }
 
-    # Format selector based on video vs audio request
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{
@@ -79,52 +78,55 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
 
-    # Check for cookies file
-    if os.path.exists('cookies.txt'):
-        ydl_opts['cookiefile'] = 'cookies.txt'
-
     loop = asyncio.get_running_loop()
+    file_path = None
 
     try:
-        def extract():
+        def run_ytdlp():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                info = ydl.extract_info(raw_url, download=True)
                 filename = ydl.prepare_filename(info)
-                if audio_only and not filename.endswith('.mp3'):
+                if audio_only:
                     base, _ = os.path.splitext(filename)
                     filename = f"{base}.mp3"
                 return info, filename
 
-        info_dict, file_path = await loop.run_in_executor(None, extract)
+        info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
-        await msg.edit_text("⬆️ Uploading to Telegram...")
+        await msg.edit_text("⬆️ <i>Uploading to Telegram...</i>", parse_mode="HTML")
 
-        with open(file_path, 'rb') as media_file:
-            if audio_only:
-                await update.message.reply_audio(
-                    audio=media_file,
-                    title=info_dict.get('title', 'Audio'),
-                    performer=info_dict.get('uploader', 'Seid Downloader')
-                )
-            else:
-                await update.message.reply_video(
-                    video=media_file,
-                    caption=info_dict.get('title', 'Downloaded Video'),
-                    supports_streaming=True
-                )
-
-        await msg.delete()
-
-        # Clean up local file
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            with open(file_path, 'rb') as media_file:
+                if audio_only:
+                    await update.message.reply_audio(
+                        audio=media_file,
+                        title=info_dict.get('title', 'Downloaded Audio'),
+                        performer=info_dict.get('uploader', 'Seid Downloader')
+                    )
+                else:
+                    await update.message.reply_video(
+                        video=media_file,
+                        caption=f"🎥 <b>{info_dict.get('title', 'Video')}</b>",
+                        parse_mode="HTML",
+                        supports_streaming=True
+                    )
+            await msg.delete()
+        else:
+            await msg.edit_text("❌ Download failed: File was empty.")
 
     except Exception as e:
-        logger.error(f"Error processing URL {url}: {e}")
-        await msg.edit_text(f"❌ Download Error:\n{str(e)}")
+        logger.error(f"Error processing URL {raw_url}: {e}")
+        await msg.edit_text(f"❌ <b>Download Failed:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
+
+    finally:
+        # File cleanup
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
 
 def main():
-    """Start the bot."""
     if not BOT_TOKEN:
         logger.error("BOT_TOKEN environment variable is not set!")
         return

@@ -104,7 +104,8 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
     output_template = "downloaded_media.%(ext)s"
 
     # Base options safe for ALL platforms
-    base_ydl_opts = {
+        base_ydl_opts = {
+        'cookiefile': 'cookies.txt',  # <--- ADD THIS LINE HERE
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
@@ -113,6 +114,7 @@ async def handle_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'geo_bypass': True,
         'no_color': True,
     }
+
 
     # Platform Routing Logic
     is_youtube = "youtube.com" in url.lower() or "youtu.be" in url.lower()

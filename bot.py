@@ -13,7 +13,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Environment variable
+# Environment variable setup
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -54,15 +54,16 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     msg = await update.message.reply_text("⚡ <i>Processing link, please wait...</i>", parse_mode="HTML")
 
-    # Unique file name generator
+    # Unique file name generator prevents file collision issues
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # Fast yt-dlp config for non-YouTube platforms
+    # Fully optimized yt-dlp configuration for Render backend environment
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
+        'noplaylist': True,
         'socket_timeout': 30,
         'retries': 5,
         'nocheckcertificate': True,
@@ -70,13 +71,8 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
-        ydl_opts['postprocessors'] = [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }]
     else:
-        ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+        ydl_opts['format'] = 'best[ext=mp4]/best'
 
     loop = asyncio.get_running_loop()
     file_path = None
@@ -86,9 +82,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(raw_url, download=True)
                 filename = ydl.prepare_filename(info)
-                if audio_only:
-                    base, _ = os.path.splitext(filename)
-                    filename = f"{base}.mp3"
                 return info, filename
 
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)

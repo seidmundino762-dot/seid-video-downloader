@@ -27,26 +27,26 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "<b>✨ Welcome to Seid Media Downloader ✨</b>\n"
-        "━━━━━━━ • ━━━━━━━\n\n"
-        "⚡ <i>Fast & Free Social Media Video Downloader</i>\n\n"
-        "<b>Supported Platforms:</b>\n"
-        "📱 <b>TikTok</b> — Videos & Audio\n"
-        "📸 <b>Instagram</b> — Reels & Posts\n"
-        "🌐 <b>Facebook</b> — Public Videos & Reels\n\n"
-        "<b>💡 How to use:</b>\n"
-        "1. Simply paste your link here in the chat.\n"
-        "2. Add <code>audio</code> or <code>mp3</code> after your link to get sound only!\n\n"
-        "━━━━━━━ • ━━━━━━━\n"
-        "🚀 <i>Send me a link to get started!</i>"
+        "👋 Welcome to Seid Video Downloader!\n\n"
+        "Send me any link from:\n"
+        "• YouTube (Videos & Shorts)\n"
+        "• TikTok (Videos)\n"
+        "• Facebook (Videos & Reels)\n"
+        "• Instagram (Reels & Posts)\n\n"
+        "💡 Tip: Add 'audio' or 'mp3' after a link to download audio only!"
     )
-    await update.message.reply_html(welcome_text)
+    await update.message.reply_text(welcome_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_html(
-        "<b>📖 Need Help?</b>\n\n"
-        "Just copy any link from TikTok, Instagram, or Facebook and send it to me.\n"
-        "Example: <code>https://vt.tiktok.com/example/ mp3</code>"
+    await update.message.reply_text(
+        "📖 Help:\n\n"
+        "Just send me any link from:\n"
+        "• YouTube\n"
+        "• TikTok\n"
+        "• Facebook\n"
+        "• Instagram\n\n"
+        "Add 'audio' or 'mp3' after the link for audio only!\n"
+        "Example: https://vt.tiktok.com/example/ mp3"
     )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -57,7 +57,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     raw_url = text.split()[0].strip()
 
-    msg = await update.message.reply_text("⚡ <i>Processing link, please wait...</i>", parse_mode="HTML")
+    msg = await update.message.reply_text("⚡ Processing link, please wait...")
 
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
@@ -89,7 +89,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
-        await msg.edit_text("⬆️ <i>Uploading to Telegram...</i>", parse_mode="HTML")
+        await msg.edit_text("⬆️ Uploading to Telegram...")
 
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             with open(file_path, 'rb') as media_file:
@@ -102,8 +102,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_video(
                         video=media_file,
-                        caption=f"🎥 <b>{info_dict.get('title', 'Video')}</b>",
-                        parse_mode="HTML",
+                        caption=f"🎥 {info_dict.get('title', 'Video')}",
                         supports_streaming=True
                     )
             await msg.delete()
@@ -112,7 +111,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error processing URL: {e}")
-        await msg.edit_text(f"❌ <b>Download Failed:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
+        await msg.edit_text(f"❌ Download Failed: {str(e)}")
 
     finally:
         if file_path and os.path.exists(file_path):
@@ -133,23 +132,31 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download
 def webhook():
     """Handle incoming webhook updates."""
     try:
-        # IMPORTANT FIX: Initialize the application first!
+        # Get the update data
+        data = request.get_json(force=True)
+        
+        # Create a new event loop for this request
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
-        # Initialize the application
-        loop.run_until_complete(application.initialize())
-        
-        # Process the update
-        update = Update.de_json(request.get_json(force=True), application.bot)
-        loop.run_until_complete(application.process_update(update))
-        
-        return "ok", 200
+        try:
+            # Initialize application if not already
+            if not application.initialized:
+                loop.run_until_complete(application.initialize())
+            
+            # Create update object
+            update = Update.de_json(data, application.bot)
+            
+            # Process the update
+            loop.run_until_complete(application.process_update(update))
+            
+            return "ok", 200
+        finally:
+            loop.close()
+            
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return str(e), 500
-    finally:
-        loop.close()
 
 @app.route('/')
 def index():

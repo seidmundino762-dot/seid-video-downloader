@@ -27,13 +27,13 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "👋 Welcome to Seid Video Downloader!\n\n"
-        "Send me any link from:\n"
-        "• YouTube (Videos & Shorts)\n"
-        "• TikTok (Videos)\n"
-        "• Facebook (Videos & Reels)\n"
-        "• Instagram (Reels & Posts)\n\n"
-        "💡 Tip: Add 'audio' or 'mp3' after a link to download audio only!"
+        "👋 Welcome to Seid Video Downloader\n\n"
+        "Download videos from:\n"
+        "🎵 TikTok\n"
+        "📘 Facebook\n"
+        "📸 Instagram\n\n"
+        "🎧 For audio only, add 'audio' or 'mp3' after the link.\n"
+        "📎 Send a link to get started."
     )
     await update.message.reply_text(welcome_text)
 

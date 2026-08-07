@@ -17,12 +17,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot token from environment
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-
-if not BOT_TOKEN:
-    logger.error("BOT_TOKEN environment variable is not set!")
-    exit(1)
+# Bot token - UPDATED WITH CORRECT TOKEN
+BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 
 # Create application
 application = Application.builder().token(BOT_TOKEN).build()
@@ -152,10 +148,10 @@ def index():
 
 if __name__ == '__main__':
     # Set webhook
-    render_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
+    render_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'seid-video-downloader.onrender.com')}/webhook"
     logger.info(f"Setting webhook to: {render_url}")
     
-    # This is the FIX - properly handle the event loop
+    # Properly handle the event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     

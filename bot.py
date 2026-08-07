@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Bot token - UPDATED WITH CORRECT TOKEN
+# Bot token
 BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 
 # Create application
@@ -133,12 +133,23 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download
 def webhook():
     """Handle incoming webhook updates."""
     try:
+        # IMPORTANT FIX: Initialize the application first!
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Initialize the application
+        loop.run_until_complete(application.initialize())
+        
+        # Process the update
         update = Update.de_json(request.get_json(force=True), application.bot)
-        asyncio.run(application.process_update(update))
+        loop.run_until_complete(application.process_update(update))
+        
         return "ok", 200
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return str(e), 500
+    finally:
+        loop.close()
 
 @app.route('/')
 def index():
@@ -147,13 +158,14 @@ def index():
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
+    # Initialize application first
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(application.initialize())
+    
     # Set webhook
     render_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'seid-video-downloader.onrender.com')}/webhook"
     logger.info(f"Setting webhook to: {render_url}")
-    
-    # Properly handle the event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     
     loop.run_until_complete(application.bot.delete_webhook())
     loop.run_until_complete(application.bot.set_webhook(url=render_url))

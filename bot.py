@@ -77,16 +77,18 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         ydl_opts['format'] = 'best[ext=mp4]/best'
 
-    loop = asyncio.get_running_loop()
     file_path = None
 
     try:
+        # Run yt-dlp in a separate thread
         def run_ytdlp():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(raw_url, download=True)
                 filename = ydl.prepare_filename(info)
                 return info, filename
 
+        # Run in executor
+        loop = asyncio.get_event_loop()
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
         await msg.edit_text("⬆️ Uploading to Telegram...")
@@ -135,25 +137,15 @@ def webhook():
         # Get the update data
         data = request.get_json(force=True)
         
-        # Create a new event loop for this request
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Create update object
+        update = Update.de_json(data, application.bot)
         
-        try:
-            # Initialize application if not already
-            if not application.initialized:
-                loop.run_until_complete(application.initialize())
-            
-            # Create update object
-            update = Update.de_json(data, application.bot)
-            
-            # Process the update
-            loop.run_until_complete(application.process_update(update))
-            
-            return "ok", 200
-        finally:
-            loop.close()
-            
+        # Process the update using application's built-in method
+        # This handles the event loop properly
+        asyncio.run(application.process_update(update))
+        
+        return "ok", 200
+        
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return str(e), 500
@@ -165,7 +157,7 @@ def index():
 # ==================== MAIN ====================
 
 if __name__ == '__main__':
-    # Initialize application first
+    # Initialize application
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.run_until_complete(application.initialize())

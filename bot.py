@@ -3,8 +3,12 @@ import uuid
 import asyncio
 import logging
 import yt_dlp
+from flask import Flask, request, jsonify
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# Initialize Flask
+app = Flask(__name__)
 
 # Logging setup
 logging.basicConfig(
@@ -15,6 +19,9 @@ logger = logging.getLogger(__name__)
 
 # Environment variable setup
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+
+# Initialize Application
+application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a stylish welcome interface when /start is issued."""
@@ -119,27 +126,43 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-def main():
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN environment variable is not set!")
-        return
+# Add handlers to application
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("help", help_command))
+application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
 
-    application = Application.builder().token(BOT_TOKEN).build()
+@app.route('/webhook', methods=['POST'])
+async def webhook():
+    """Handle incoming webhook updates from Telegram."""
+    try:
+        update = Update.de_json(request.get_json(force=True), application.bot)
+        await application.process_update(update)
+        return "ok", 200
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return str(e), 500
 
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
-
-    logger.info("Bot starting polling...")
-    
-    # Clear any existing webhook
-    asyncio.run(application.bot.delete_webhook())
-    
-    # Start polling
-    application.run_polling(
-        drop_pending_updates=True,
-        allowed_updates=["message"]
-    )
+@app.route('/')
+def index():
+    """Health check endpoint."""
+    return "Bot is running!", 200
 
 if __name__ == '__main__':
-    main()
+    if not BOT_TOKEN:
+        logger.error("BOT_TOKEN environment variable is not set!")
+        exit(1)
+    
+    # Set webhook on Render URL
+    render_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
+    
+    logger.info(f"Setting webhook to: {render_url}")
+    
+    # Delete any existing webhook and set new one
+    asyncio.run(application.bot.delete_webhook())
+    asyncio.run(application.bot.set_webhook(url=render_url))
+    
+    logger.info("Webhook set successfully!")
+    
+    # Start Flask server
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port)

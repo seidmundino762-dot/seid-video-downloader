@@ -3,7 +3,7 @@ import uuid
 import asyncio
 import logging
 import yt_dlp
-from flask import Flask, request, jsonify
+from flask import Flask, request
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -17,14 +17,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Environment variable setup
+# Bot token from environment
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-# Initialize Application
+if not BOT_TOKEN:
+    logger.error("BOT_TOKEN environment variable is not set!")
+    exit(1)
+
+# Create application
 application = Application.builder().token(BOT_TOKEN).build()
 
+# ==================== COMMAND HANDLERS ====================
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends a stylish welcome interface when /start is issued."""
     welcome_text = (
         "<b>✨ Welcome to Seid Media Downloader ✨</b>\n"
         "━━━━━━━ • ━━━━━━━\n\n"
@@ -42,7 +47,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_html(welcome_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends help instructions."""
     await update.message.reply_html(
         "<b>📖 Need Help?</b>\n\n"
         "Just copy any link from TikTok, Instagram, or Facebook and send it to me.\n"
@@ -50,22 +54,18 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processes incoming links from TikTok, Instagram, and Facebook."""
     text = update.message.text
     if not text or not text.startswith(("http://", "https://")):
         return
 
-    # Check for audio request
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     raw_url = text.split()[0].strip()
 
     msg = await update.message.reply_text("⚡ <i>Processing link, please wait...</i>", parse_mode="HTML")
 
-    # Unique file name generator prevents file collision issues
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # Fully optimized yt-dlp configuration for Render backend environment
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -115,28 +115,30 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await msg.edit_text("❌ Download failed: File was empty.")
 
     except Exception as e:
-        logger.error(f"Error processing URL {raw_url}: {e}")
+        logger.error(f"Error processing URL: {e}")
         await msg.edit_text(f"❌ <b>Download Failed:</b>\n<code>{str(e)}</code>", parse_mode="HTML")
 
     finally:
-        # File cleanup
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except Exception:
                 pass
 
-# Add handlers to application
+# ==================== REGISTER HANDLERS ====================
+
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("help", help_command))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
 
+# ==================== FLASK WEBHOOK ====================
+
 @app.route('/webhook', methods=['POST'])
-async def webhook():
-    """Handle incoming webhook updates from Telegram."""
+def webhook():
+    """Handle incoming webhook updates."""
     try:
         update = Update.de_json(request.get_json(force=True), application.bot)
-        await application.process_update(update)
+        asyncio.run(application.process_update(update))
         return "ok", 200
     except Exception as e:
         logger.error(f"Webhook error: {e}")
@@ -144,25 +146,25 @@ async def webhook():
 
 @app.route('/')
 def index():
-    """Health check endpoint."""
     return "Bot is running!", 200
 
+# ==================== MAIN ====================
+
 if __name__ == '__main__':
-    if not BOT_TOKEN:
-        logger.error("BOT_TOKEN environment variable is not set!")
-        exit(1)
-    
-    # Set webhook on Render URL
+    # Set webhook
     render_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'localhost')}/webhook"
-    
     logger.info(f"Setting webhook to: {render_url}")
     
-    # Delete any existing webhook and set new one
-    asyncio.run(application.bot.delete_webhook())
-    asyncio.run(application.bot.set_webhook(url=render_url))
+    # This is the FIX - properly handle the event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    loop.run_until_complete(application.bot.delete_webhook())
+    loop.run_until_complete(application.bot.set_webhook(url=render_url))
     
     logger.info("Webhook set successfully!")
+    loop.close()
     
-    # Start Flask server
+    # Run Flask
     port = int(os.environ.get('PORT', 10000))
     app.run(host='0.0.0.0', port=port)

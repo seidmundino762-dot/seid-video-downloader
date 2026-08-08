@@ -31,7 +31,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Download videos from:\n"
         "🎵 TikTok\n"
         "📘 Facebook\n"
-        "📸 Instagram\n\n"
+        "📸 Instagram\n"
+        "▶️ YouTube\n\n"
         "🎧 For audio only, add 'audio' or 'mp3' after the link.\n"
         "📎 Send a link to get started."
     )
@@ -41,12 +42,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 Help:\n\n"
         "Just send me any link from:\n"
-        "• YouTube\n"
-        "• TikTok\n"
-        "• Facebook\n"
-        "• Instagram\n\n"
+        "• YouTube (Videos & Shorts)\n"
+        "• TikTok (Videos)\n"
+        "• Facebook (Videos & Reels)\n"
+        "• Instagram (Reels & Posts)\n\n"
         "Add 'audio' or 'mp3' after the link for audio only!\n"
-        "Example: https://vt.tiktok.com/example/ mp3"
+        "Example: https://youtube.com/watch?v=xxx mp3"
     )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,15 +63,32 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
+    # ============ YT-DLP CONFIGURATION ============
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
         'socket_timeout': 30,
-        'retries': 5,
+        'retries': 10,
         'nocheckcertificate': True,
+        # Headers to mimic a real browser
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
+        }
     }
+
+    # Instagram specific fixes
+    if 'instagram.com' in raw_url.lower():
+        ydl_opts['extractor_args'] = {
+            'instagram': {
+                'skip': ['dash', 'hls'],
+                'api': ['mobile'],
+            }
+        }
 
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
@@ -99,21 +117,42 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     await update.message.reply_audio(
                         audio=media_file,
                         title=info_dict.get('title', 'Downloaded Audio'),
-                        performer=info_dict.get('uploader', 'Seid Downloader')
+                        performer=info_dict.get('uploader', 'Seid Downloader'),
+                        duration=info_dict.get('duration', 0)
                     )
                 else:
                     await update.message.reply_video(
                         video=media_file,
-                        caption=f"🎥 {info_dict.get('title', 'Video')}",
-                        supports_streaming=True
+                        caption=f"🎥 {info_dict.get('title', 'Video')}\n"
+                                f"📺 {info_dict.get('uploader', 'Unknown')}",
+                        supports_streaming=True,
+                        duration=info_dict.get('duration', 0)
                     )
             await msg.delete()
         else:
             await msg.edit_text("❌ Download failed: File was empty.")
 
     except Exception as e:
-        logger.error(f"Error processing URL: {e}")
-        await msg.edit_text(f"❌ Download Failed: {str(e)}")
+        error_msg = str(e)
+        logger.error(f"Error processing URL: {error_msg}")
+        
+        # Provide user-friendly error messages
+        if "rate-limit" in error_msg.lower() or "login required" in error_msg.lower():
+            await msg.edit_text(
+                "❌ This platform is blocking the download.\n\n"
+                "Try these alternatives:\n"
+                "1. Wait a few minutes and try again\n"
+                "2. Use a different link\n"
+                "3. Try YouTube or TikTok links\n\n"
+                "📎 Send a different link to get started."
+            )
+        elif "copyright" in error_msg.lower():
+            await msg.edit_text(
+                "❌ This video is copyrighted and cannot be downloaded.\n\n"
+                "Try a different video link."
+            )
+        else:
+            await msg.edit_text(f"❌ Download Failed: {str(e)[:200]}")
 
     finally:
         if file_path and os.path.exists(file_path):
@@ -134,18 +173,10 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download
 def webhook():
     """Handle incoming webhook updates."""
     try:
-        # Get the update data
         data = request.get_json(force=True)
-        
-        # Create update object
         update = Update.de_json(data, application.bot)
-        
-        # Process the update using application's built-in method
-        # This handles the event loop properly
         asyncio.run(application.process_update(update))
-        
         return "ok", 200
-        
     except Exception as e:
         logger.error(f"Webhook error: {e}")
         return str(e), 500

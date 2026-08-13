@@ -6,7 +6,6 @@ import yt_dlp
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-from datetime import datetime
 
 # Initialize Flask
 app = Flask(__name__)
@@ -24,9 +23,6 @@ BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 # Channel username (without @)
 CHANNEL_USERNAME = "seidvideodownloaderbot"
 
-# Monthly users counter (you can increment this)
-MONTHLY_USERS = 34982
-
 # Create application
 application = Application.builder().token(BOT_TOKEN).build()
 
@@ -36,13 +32,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_name = user.first_name if user.first_name else "User"
     
-    # Professional welcome message
+    # Professional welcome text exactly like the screenshot
     welcome_text = (
         f"Hello {user_name}! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
     )
     
-    # Create channel join button
+    # Create START button (like in the professional example)
     keyboard = [
+        [InlineKeyboardButton("📥 START", callback_data="start_download")],
         [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -53,17 +50,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = (
+    await update.message.reply_text(
         "📖 How to use:\n\n"
-        "1. Send a TikTok video link\n"
-        "2. Wait for download\n"
-        "3. Video will be sent to you\n\n"
-        "Supported links:\n"
-        "• https://www.tiktok.com/@username/video/xxxxx\n"
-        "• https://vt.tiktok.com/xxxxx\n\n"
-        "⚠️ Videos must be under 40MB"
+        "1. Join our channel\n"
+        "2. Send a TikTok video link\n"
+        "3. Wait for download\n\n"
+        "Example:\n"
+        "https://www.tiktok.com/@username/video/xxxxx\n"
+        "https://vt.tiktok.com/xxxxx\n\n"
+        "Videos must be under 40MB."
     )
-    await update.message.reply_text(help_text)
 
 async def check_channel_membership(user_id):
     """Check if user is a member of the channel."""
@@ -89,7 +85,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Skip if no link
     if not text.startswith(("http://", "https://")):
         await update.message.reply_text(
-            "❌ Please send a valid link."
+            "Please send a valid TikTok link."
         )
         return
     
@@ -122,7 +118,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_url = text.split()[0].strip()
 
     # Send processing message
-    msg = await update.message.reply_text("⏳ Processing your TikTok video... Please wait.")
+    msg = await update.message.reply_text("⚡ Processing your TikTok video... Please wait.")
 
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
@@ -180,11 +176,11 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             if file_size > 40 * 1024 * 1024:  # 40MB in bytes
                 await msg.edit_text(
-                    f"❌ Video is too large! Size: {file_size_mb:.1f}MB, Limit: 40MB. Please send a shorter TikTok video."
+                    f"Video is too large! Size: {file_size_mb:.1f}MB, Limit: 40MB. Please send a shorter TikTok video."
                 )
                 return
 
-        await msg.edit_text("📤 Uploading to Telegram...")
+        await msg.edit_text("⬆️ Uploading to Telegram...")
 
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             with open(file_path, 'rb') as media_file:
@@ -204,7 +200,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
             await msg.delete()
         else:
-            await msg.edit_text("❌ Download failed: File was empty.")
+            await msg.edit_text("Download failed: File was empty.")
 
     except Exception as e:
         error_msg = str(e)
@@ -212,15 +208,15 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if "rate-limit" in error_msg.lower():
             await msg.edit_text(
-                "⏳ Rate limit reached! Please wait 2-3 minutes and try again."
+                "Rate limit reached! Please wait 2-3 minutes and try again."
             )
         elif "private" in error_msg.lower():
             await msg.edit_text(
-                "🔒 This video is private. Please send a public TikTok video link."
+                "This video is private. Please send a public TikTok video link."
             )
         else:
             await msg.edit_text(
-                f"❌ Download Failed: {error_msg[:150]}"
+                f"Download Failed: {error_msg[:150]}"
             )
 
     finally:
@@ -236,18 +232,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    # User clicked the channel button
-    user_id = query.from_user.id
-    is_member = await check_channel_membership(user_id)
-    
-    if is_member:
+    if query.data == "start_download":
         await query.edit_message_text(
-            "✅ You have joined the channel! Now send me a TikTok link to download."
+            "Send me a TikTok video link to download.\n\n"
+            "Example:\n"
+            "https://www.tiktok.com/@username/video/xxxxx\n"
+            "https://vt.tiktok.com/xxxxx\n\n"
+            "Videos must be under 40MB."
         )
     else:
-        await query.edit_message_text(
-            "⚠️ Please join the channel first using the button above, then send your link."
-        )
+        user_id = query.from_user.id
+        is_member = await check_channel_membership(user_id)
+        
+        if is_member:
+            await query.edit_message_text(
+                "You have joined the channel! Now send me a TikTok link to download."
+            )
+        else:
+            await query.edit_message_text(
+                "Please join the channel first using the button above, then send your link."
+            )
 
 # ==================== REGISTER HANDLERS ====================
 
@@ -272,7 +276,7 @@ def webhook():
 
 @app.route('/')
 def index():
-    return "TikTok Video Downloader Bot is running!", 200
+    return "Bot is running!", 200
 
 # ==================== MAIN ====================
 

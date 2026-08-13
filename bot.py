@@ -39,8 +39,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
     )
     
-    # Only Join Channel button (START button removed)
+    # Create buttons with correct channel username
     keyboard = [
+        [InlineKeyboardButton("📥 START", callback_data="start_download")],
         [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -233,17 +234,26 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    user_id = query.from_user.id
-    is_member = await check_channel_membership(user_id)
-    
-    if is_member:
+    if query.data == "start_download":
         await query.edit_message_text(
-            "You have joined the channel! Now send me a TikTok link to download."
+            "Send me a TikTok video link to download.\n\n"
+            "Example:\n"
+            "https://www.tiktok.com/@username/video/xxxxx\n"
+            "https://vt.tiktok.com/xxxxx\n\n"
+            "Videos must be under 40MB."
         )
     else:
-        await query.edit_message_text(
-            "Please join the channel first using the button above, then send your link."
-        )
+        user_id = query.from_user.id
+        is_member = await check_channel_membership(user_id)
+        
+        if is_member:
+            await query.edit_message_text(
+                "You have joined the channel! Now send me a TikTok link to download."
+            )
+        else:
+            await query.edit_message_text(
+                "Please join the channel first using the button above, then send your link."
+            )
 
 # ==================== REGISTER HANDLERS ====================
 

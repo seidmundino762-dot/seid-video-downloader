@@ -29,36 +29,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "👋 Welcome to Seid Video Downloader\n\n"
         "Download videos from:\n"
+        "▶️ YouTube\n"
         "🎵 TikTok\n"
         "📘 Facebook\n"
-        "📸 Instagram\n"
-        "▶️ YouTube\n\n"
+        "📸 Instagram\n\n"
         "🎧 For audio only, add 'audio' or 'mp3' after the link.\n"
-        "📎 Send a link to get started."
+        "📎 Just paste ANY link to download instantly!"
     )
     await update.message.reply_text(welcome_text)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📖 Help:\n\n"
-        "Just send me any link from:\n"
+        "Just send me ANY link from:\n"
         "• YouTube (Videos & Shorts)\n"
         "• TikTok (Videos)\n"
         "• Facebook (Videos & Reels)\n"
         "• Instagram (Reels & Posts)\n\n"
         "Add 'audio' or 'mp3' after the link for audio only!\n"
-        "Example: https://youtube.com/watch?v=xxx mp3"
+        "Example: https://youtube.com/watch?v=xxx mp3\n\n"
+        "✅ One link = One download!"
     )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    if not text or not text.startswith(("http://", "https://")):
+    
+    # Skip if it's a command
+    if text.startswith('/'):
+        return
+    
+    # Skip if no link
+    if not text.startswith(("http://", "https://")):
         return
 
+    # Check for audio request (only if user adds it)
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
+    
+    # Extract the URL (first word)
     raw_url = text.split()[0].strip()
 
-    msg = await update.message.reply_text("⚡ Processing link, please wait...")
+    # Send processing message
+    msg = await update.message.reply_text("⚡ Downloading... Please wait.")
 
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
@@ -72,7 +83,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'socket_timeout': 30,
         'retries': 10,
         'nocheckcertificate': True,
-        # Headers to mimic a real browser
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -152,7 +162,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Try a different video link."
             )
         else:
-            await msg.edit_text(f"❌ Download Failed: {str(e)[:200]}")
+            await msg.edit_text(f"❌ Failed: {str(e)[:150]}")
 
     finally:
         if file_path and os.path.exists(file_path):

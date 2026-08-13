@@ -32,12 +32,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_name = user.first_name if user.first_name else "User"
     
-    # Professional welcome text exactly like the screenshot
+    # Professional welcome text
     welcome_text = (
-        f"Hello {user_name}! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
+        f"{user_name}\n"
+        f"/start\n"
+        f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
     )
     
-    # Create START button (like in the professional example)
+    # Create buttons with correct channel username
     keyboard = [
         [InlineKeyboardButton("📥 START", callback_data="start_download")],
         [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]

@@ -62,7 +62,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text.startswith(("http://", "https://")):
         return
 
-    # Check for audio request (only if user adds it)
+    # Check for audio request
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     
     # Extract the URL (first word)
@@ -74,7 +74,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # ============ YT-DLP CONFIGURATION ============
+    # ============ ADVANCED YT-DLP CONFIGURATION ============
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -83,27 +83,68 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'socket_timeout': 30,
         'retries': 10,
         'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'no_color': True,
+        # Headers to mimic real browser
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
             'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+        },
+        # Cookies from browser (simulated)
+        'cookies': {
+            'datr': '1234567890abcdef',  # Facebook cookie
+            'sessionid': 'dummy_session',  # Instagram cookie
         }
     }
 
-    # Instagram specific fixes
-    if 'instagram.com' in raw_url.lower():
-        ydl_opts['extractor_args'] = {
-            'instagram': {
-                'skip': ['dash', 'hls'],
-                'api': ['mobile'],
-            }
-        }
+    # ============ PLATFORM SPECIFIC FIXES ============
+    if 'facebook.com' in raw_url.lower():
+        ydl_opts.update({
+            'extractor_args': {
+                'facebook': {
+                    'allow_unplayable_formats': ['True'],
+                    'manifest_retry_limit': ['10'],
+                }
+            },
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        })
+    elif 'instagram.com' in raw_url.lower():
+        ydl_opts.update({
+            'extractor_args': {
+                'instagram': {
+                    'skip': ['dash', 'hls'],
+                    'api': ['mobile'],
+                }
+            },
+            'format': 'best[ext=mp4]/best',
+        })
+    elif 'tiktok.com' in raw_url.lower():
+        ydl_opts.update({
+            'extractor_args': {
+                'tiktok': {
+                    'api_hostname': ['www.tiktok.com'],
+                }
+            },
+            'format': 'best[ext=mp4]/best',
+        })
+    elif 'youtube.com' in raw_url.lower() or 'youtu.be' in raw_url.lower():
+        ydl_opts.update({
+            'format': 'best[ext=mp4]/best',
+        })
 
+    # If audio only, override format
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
-    else:
-        ydl_opts['format'] = 'best[ext=mp4]/best'
 
     file_path = None
 
@@ -146,23 +187,42 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         error_msg = str(e)
         logger.error(f"Error processing URL: {error_msg}")
         
-        # Provide user-friendly error messages
-        if "rate-limit" in error_msg.lower() or "login required" in error_msg.lower():
+        # ============ USER-FRIENDLY ERRORS ============
+        if "rate-limit" in error_msg.lower():
             await msg.edit_text(
-                "❌ This platform is blocking the download.\n\n"
+                "⏳ Rate limit reached!\n\n"
+                "Please wait 2-3 minutes and try again.\n"
+                "This happens when downloading too many videos quickly."
+            )
+        elif "login required" in error_msg.lower() or "cookies" in error_msg.lower():
+            await msg.edit_text(
+                "🔒 This video requires login to download.\n\n"
                 "Try these alternatives:\n"
-                "1. Wait a few minutes and try again\n"
-                "2. Use a different link\n"
-                "3. Try YouTube or TikTok links\n\n"
-                "📎 Send a different link to get started."
+                "1. Use a public/shared link\n"
+                "2. Try downloading from YouTube or TikTok\n"
+                "3. The video might be private\n\n"
+                "📎 Send a different link."
             )
         elif "copyright" in error_msg.lower():
             await msg.edit_text(
                 "❌ This video is copyrighted and cannot be downloaded.\n\n"
-                "Try a different video link."
+                "Please try a different video."
+            )
+        elif "no video formats" in error_msg.lower() or "formats found" in error_msg.lower():
+            await msg.edit_text(
+                "❌ This video format is not available for download.\n\n"
+                "The video might be:\n"
+                "• A live stream\n"
+                "• A private video\n"
+                "• Deleted or removed\n\n"
+                "📎 Try a different link."
             )
         else:
-            await msg.edit_text(f"❌ Failed: {str(e)[:150]}")
+            await msg.edit_text(
+                f"❌ Download Failed\n\n"
+                f"Error: {str(e)[:150]}\n\n"
+                f"📎 Try sending a different link."
+            )
 
     finally:
         if file_path and os.path.exists(file_path):

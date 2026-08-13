@@ -39,7 +39,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
     )
     
-    # Create buttons with correct channel username
+    # Create buttons
     keyboard = [
         [InlineKeyboardButton("📥 START", callback_data="start_download")],
         [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
@@ -57,9 +57,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. Join our channel\n"
         "2. Send a TikTok video link\n"
         "3. Wait for download\n\n"
-        "Example:\n"
-        "https://www.tiktok.com/@username/video/xxxxx\n"
-        "https://vt.tiktok.com/xxxxx\n\n"
         "Videos must be under 40MB."
     )
 
@@ -234,25 +231,24 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    user_id = query.from_user.id
+    is_member = await check_channel_membership(user_id)
+    
     if query.data == "start_download":
-        await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\n"
-            "Example:\n"
-            "https://www.tiktok.com/@username/video/xxxxx\n"
-            "https://vt.tiktok.com/xxxxx\n\n"
-            "Videos must be under 40MB."
-        )
-    else:
-        user_id = query.from_user.id
-        is_member = await check_channel_membership(user_id)
-        
         if is_member:
             await query.edit_message_text(
-                "You have joined the channel! Now send me a TikTok link to download."
+                "Send me a TikTok video link to download.\n\n"
+                "Videos must be under 40MB."
             )
         else:
+            keyboard = [
+                [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.edit_message_text(
-                "Please join the channel first using the button above, then send your link."
+                "Please join my channel to use me!\nAfter joining click START again to proceed.",
+                reply_markup=reply_markup
             )
 
 # ==================== REGISTER HANDLERS ====================

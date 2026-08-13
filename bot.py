@@ -26,99 +26,52 @@ CHANNEL_USERNAME = "seidvideodownloaderbot"
 # Create application
 application = Application.builder().token(BOT_TOKEN).build()
 
-# ==================== CHECK SUBSCRIPTION ====================
-
-async def is_subscribed(user_id, context):
-    """Check if user is subscribed to the channel"""
-    try:
-        chat_member = await context.bot.get_chat_member(
-            chat_id=f"@{CHANNEL_USERNAME}", 
-            user_id=user_id
-        )
-        return chat_member.status in ['member', 'administrator', 'creator']
-    except Exception as e:
-        logger.error(f"Error checking subscription: {e}")
-        return False
-
-async def send_subscription_request(update, context):
-    """Send a message asking user to join channel"""
-    keyboard = [
-        [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
-        [InlineKeyboardButton("I've Joined", callback_data="check_sub")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "Please join my channels to use me, Due to overload only channel subscribers can use me!\n"
-        "After joining just send me that link again to proceed!",
-        reply_markup=reply_markup
-    )
-
 # ==================== COMMAND HANDLERS ====================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command"""
-    user_id = update.effective_user.id
+    user = update.effective_user
+    user_name = user.first_name if user.first_name else "User"
     
-    # Check if user is subscribed
-    if not await is_subscribed(user_id, context):
-        await send_subscription_request(update, context)
-        return
+    # Create channel join button
+    keyboard = [
+        [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     welcome_text = (
-        "What can this bot do?\n\n"
-        "Download TikTok videos in telegram!\n\n"
-        "Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
+        f"Hello {user_name}! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
     )
-    await update.message.reply_text(welcome_text)
-
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /help command"""
-    user_id = update.effective_user.id
-    
-    # Check if user is subscribed
-    if not await is_subscribed(user_id, context):
-        await send_subscription_request(update, context)
-        return
     
     await update.message.reply_text(
-        "Help:\n\n"
-        "Send a TikTok video link:\n"
-        "https://www.tiktok.com/@username/video/xxxxx\n"
-        "https://vt.tiktok.com/xxxxx\n\n"
-        "For audio only, add 'audio' or 'mp3' after the link.\n\n"
-        "Videos must be under 40MB\n"
-        "May take up to 2 minutes"
+        welcome_text,
+        reply_markup=reply_markup
     )
 
-async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle button press for subscription check"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = update.effective_user.id
-    
-    if query.data == "check_sub":
-        if await is_subscribed(user_id, context):
-            await query.edit_message_text(
-                "You are subscribed! Welcome to Seid Video Downloader.\n\n"
-                "What can this bot do?\n\n"
-                "Download TikTok videos in telegram!\n\n"
-                "Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
-            )
-        else:
-            await query.edit_message_text(
-                "You haven't joined the channel yet!\n\n"
-                "Please join first then click 'I've Joined' again.",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")],
-                    [InlineKeyboardButton("I've Joined", callback_data="check_sub")]
-                ])
-            )
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Send a TikTok video link to download.\n\n"
+        "Example:\n"
+        "https://www.tiktok.com/@username/video/xxxxx\n"
+        "https://vt.tiktok.com/xxxxx\n\n"
+        "Videos must be under 40MB."
+    )
+
+async def check_channel_membership(user_id):
+    """Check if user is a member of the channel."""
+    try:
+        member = await application.bot.get_chat_member(
+            chat_id=f"@{CHANNEL_USERNAME}", 
+            user_id=user_id
+        )
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception as e:
+        logger.error(f"Error checking membership: {e}")
+        return False
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle incoming messages"""
     text = update.message.text
+    user = update.effective_user
+    user_id = user.id
     
     # Skip if it's a command
     if text.startswith('/'):
@@ -126,15 +79,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Skip if no link
     if not text.startswith(("http://", "https://")):
-        await update.message.reply_text(
-            "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!"
-        )
         return
     
-    # Check if user is subscribed
-    user_id = update.effective_user.id
-    if not await is_subscribed(user_id, context):
-        await send_subscription_request(update, context)
+    # Check if user is a channel member
+    is_member = await check_channel_membership(user_id)
+    
+    if not is_member:
+        keyboard = [
+            [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            "Please join my channels to use me, Due to overload only channel subscribers can use me!\nAfter joining just send me that link again to proceed!",
+            reply_markup=reply_markup
+        )
         return
     
     # Only process TikTok links
@@ -151,7 +110,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_url = text.split()[0].strip()
 
     # Send processing message
-    msg = await update.message.reply_text("Downloading TikTok video... Please wait up to 2 minutes.")
+    msg = await update.message.reply_text("Processing your TikTok video... Please wait.")
 
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
@@ -183,14 +142,12 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
     }
 
-    # Format selection
     if audio_only:
         ydl_opts['format'] = 'bestaudio/best'
     else:
         ydl_opts['format'] = 'best[ext=mp4]/best'
 
     file_path = None
-    file_size_mb = 0
 
     try:
         # Run yt-dlp in a separate thread
@@ -204,18 +161,14 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_event_loop()
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
-        # Check file size
+        # Check file size (max 40MB)
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
             file_size_mb = file_size / (1024 * 1024)
             
-            # Check if file is under 40MB
             if file_size > 40 * 1024 * 1024:  # 40MB in bytes
                 await msg.edit_text(
-                    f"Video is too large!\n\n"
-                    f"Size: {file_size_mb:.1f}MB\n"
-                    f"Limit: 40MB\n\n"
-                    f"Please send a shorter TikTok video."
+                    f"Video is too large! Size: {file_size_mb:.1f}MB, Limit: 40MB. Please send a shorter TikTok video."
                 )
                 return
 
@@ -233,34 +186,29 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_video(
                         video=media_file,
-                        caption=f"{info_dict.get('title', 'TikTok Video')}\n"
-                                f"👤 {info_dict.get('uploader', 'Unknown')}\n"
-                                f"📦 {file_size_mb:.1f}MB",
+                        caption=f"{info_dict.get('title', 'TikTok Video')}",
                         supports_streaming=True,
                         duration=info_dict.get('duration', 0)
                     )
             await msg.delete()
         else:
-            await msg.edit_text("No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!")
+            await msg.edit_text("Download failed: File was empty.")
 
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error processing URL: {error_msg}")
         
-        # User-friendly error messages (no ❌)
         if "rate-limit" in error_msg.lower():
             await msg.edit_text(
-                "Rate limit reached!\n\n"
-                "Please wait 2-5 minutes and try again."
+                "Rate limit reached! Please wait 2-3 minutes and try again."
             )
         elif "private" in error_msg.lower():
             await msg.edit_text(
-                "This video is private.\n\n"
-                "Please send a public TikTok video link."
+                "This video is private. Please send a public TikTok video link."
             )
         else:
             await msg.edit_text(
-                "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!"
+                f"Download Failed: {error_msg[:150]}"
             )
 
     finally:
@@ -270,12 +218,31 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
+# ==================== CALLBACK HANDLER ====================
+
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    # User clicked the channel button
+    user_id = query.from_user.id
+    is_member = await check_channel_membership(user_id)
+    
+    if is_member:
+        await query.edit_message_text(
+            "You have joined the channel! Now send me a TikTok link to download."
+        )
+    else:
+        await query.edit_message_text(
+            "Please join the channel first using the button above, then send your link."
+        )
+
 # ==================== REGISTER HANDLERS ====================
 
 application.add_handler(CommandHandler("start", start))
 application.add_handler(CommandHandler("help", help_command))
-application.add_handler(CallbackQueryHandler(button_callback))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, download_and_send))
+application.add_handler(CallbackQueryHandler(button_callback))
 
 # ==================== FLASK WEBHOOK ====================
 

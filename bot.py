@@ -56,23 +56,26 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    user_name = user.first_name if user.first_name else "User"
     user_id = str(user.id)
+    
+    # PROFESSIONAL MENTION STYLE - Creates a proper Telegram mention
+    # This creates a clickable mention like @username or shows the name professionally
+    mention = f'<a href="tg://user?id={user_id}">{user.first_name}</a>'
+    
+    welcome_text = (
+        f"{mention}\n"
+        f"/start\n"
+        f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
+    )
     
     # Check if user is already verified
     if user_id in verified_users:
-        welcome_text = (
-            f"{user_name}\n"
-            f"/start\n"
-            f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
-        )
-        
         keyboard = [
             [InlineKeyboardButton("📥 START", callback_data="start_download")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        await update.message.reply_html(
             welcome_text,
             reply_markup=reply_markup
         )
@@ -86,36 +89,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         verified_users.add(user_id)
         save_verified_users(verified_users)
         
-        welcome_text = (
-            f"{user_name}\n"
-            f"/start\n"
-            f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
-        )
-        
         keyboard = [
             [InlineKeyboardButton("📥 START", callback_data="start_download")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        await update.message.reply_html(
             welcome_text,
             reply_markup=reply_markup
         )
     else:
         # User is not a member - show join button
-        welcome_text = (
-            f"{user_name}\n"
-            f"/start\n"
-            f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
-        )
-        
         keyboard = [
             [InlineKeyboardButton("📥 START", callback_data="start_download")],
             [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(
+        await update.message.reply_html(
             welcome_text,
             reply_markup=reply_markup
         )
@@ -130,9 +121,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def check_channel_membership(user_id):
-    """Check if user is a member of the channel using multiple methods."""
+    """Check if user is a member of the channel."""
     try:
-        # Method 1: Try to get chat member
+        # Try to get chat member
         try:
             member = await application.bot.get_chat_member(
                 chat_id=f"@{CHANNEL_USERNAME}", 
@@ -144,13 +135,11 @@ async def check_channel_membership(user_id):
         except Exception as e:
             logger.error(f"Method 1 failed: {e}")
         
-        # Method 2: Try using the channel ID directly
+        # Try using the channel ID directly
         try:
-            # Try to get the chat
             chat = await application.bot.get_chat(f"@{CHANNEL_USERNAME}")
             logger.info(f"Chat found: {chat.title}")
             
-            # Try to get member again
             member = await application.bot.get_chat_member(
                 chat_id=chat.id, 
                 user_id=int(user_id)

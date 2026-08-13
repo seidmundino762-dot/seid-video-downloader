@@ -23,9 +23,6 @@ BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 # Channel username (without @)
 CHANNEL_USERNAME = "TechWithSeidOfficial"
 
-# Store verified users (in production, use a database)
-verified_users = set()
-
 # Create application
 application = Application.builder().token(BOT_TOKEN).build()
 
@@ -36,32 +33,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_name = user.first_name if user.first_name else "User"
     user_id = user.id
     
-    # Check if user is already verified
-    if user_id in verified_users:
-        welcome_text = (
-            f"{user_name}\n"
-            f"/start\n"
-            f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take upto 2 minutes to send you the video."
-        )
-        
-        keyboard = [
-            [InlineKeyboardButton("📥 START", callback_data="start_download")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await update.message.reply_text(
-            welcome_text,
-            reply_markup=reply_markup
-        )
-        return
-    
     # Check if user is a channel member
     is_member = await check_channel_membership(user_id)
     
     if is_member:
-        # Add to verified users
-        verified_users.add(user_id)
-        
+        # User is a member - show welcome without join button
         welcome_text = (
             f"{user_name}\n"
             f"/start\n"
@@ -78,7 +54,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
     else:
-        # Not a member - show join button
+        # User is not a member - show join button
         welcome_text = (
             f"{user_name}\n"
             f"/start\n"
@@ -112,9 +88,10 @@ async def check_channel_membership(user_id):
             chat_id=f"@{CHANNEL_USERNAME}", 
             user_id=user_id
         )
+        logger.info(f"User {user_id} status: {member.status}")
         return member.status in ['member', 'administrator', 'creator']
     except Exception as e:
-        logger.error(f"Error checking membership: {e}")
+        logger.error(f"Error checking membership for {user_id}: {e}")
         return False
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,25 +110,20 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if user is verified
-    if user_id not in verified_users:
-        # Check if user is a channel member
-        is_member = await check_channel_membership(user_id)
+    # Check if user is a channel member
+    is_member = await check_channel_membership(user_id)
+    
+    if not is_member:
+        keyboard = [
+            [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        if is_member:
-            # Add to verified users
-            verified_users.add(user_id)
-        else:
-            keyboard = [
-                [InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await update.message.reply_text(
-                "Please join my channels to use me, Due to overload only channel subscribers can use me!\nAfter joining just send me that link again to proceed!",
-                reply_markup=reply_markup
-            )
-            return
+        await update.message.reply_text(
+            "Please join my channels to use me, Due to overload only channel subscribers can use me!\nAfter joining just send me that link again to proceed!",
+            reply_markup=reply_markup
+        )
+        return
     
     # Only process TikTok links
     if 'tiktok.com' not in text.lower():
@@ -283,20 +255,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = query.from_user.id
     
-    # Check if user is verified
-    if user_id in verified_users:
-        await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\n"
-            "Videos must be under 40MB."
-        )
-        return
-    
     # Check if user is a channel member
     is_member = await check_channel_membership(user_id)
     
     if is_member:
-        # Add to verified users
-        verified_users.add(user_id)
         await query.edit_message_text(
             "Send me a TikTok video link to download.\n\n"
             "Videos must be under 40MB."

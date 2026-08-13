@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 
 # Channel username (without @)
-CHANNEL_USERNAME = "seidvideodownloaderbot"
+CHANNEL_USERNAME = "TechWithSeidOfficial"
 
 # Create application
 application = Application.builder().token(BOT_TOKEN).build()

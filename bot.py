@@ -56,15 +56,12 @@ application = Application.builder().token(BOT_TOKEN).build()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    user_name = user.first_name if user.first_name else "User"
     user_id = str(user.id)
+    message_id = update.message.message_id
     
-    # PROFESSIONAL MENTION STYLE - Creates a proper Telegram mention
-    # This creates a clickable mention like @username or shows the name professionally
-    mention = f'<a href="tg://user?id={user_id}">{user.first_name}</a>'
-    
+    # Professional welcome text with native reply quote
     welcome_text = (
-        f"{mention}\n"
-        f"/start\n"
         f"Hello! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
     )
     
@@ -75,9 +72,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_html(
+        # Send as reply to the user's /start message (creates native reply header)
+        await update.message.reply_text(
             welcome_text,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            reply_to_message_id=message_id
         )
         return
     
@@ -94,9 +93,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_html(
+        # Send as reply to the user's /start message (creates native reply header)
+        await update.message.reply_text(
             welcome_text,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            reply_to_message_id=message_id
         )
     else:
         # User is not a member - show join button
@@ -106,9 +107,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_html(
+        # Send as reply to the user's /start message (creates native reply header)
+        await update.message.reply_text(
             welcome_text,
-            reply_markup=reply_markup
+            reply_markup=reply_markup,
+            reply_to_message_id=message_id
         )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -160,6 +163,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     user = update.effective_user
     user_id = str(user.id)
+    message_id = update.message.message_id
     
     # Skip if it's a command
     if text.startswith('/'):
@@ -167,8 +171,10 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Skip if no link
     if not text.startswith(("http://", "https://")):
+        # Reply with error as native reply
         await update.message.reply_text(
-            "Please send a valid TikTok link."
+            "Please send a valid TikTok link.",
+            reply_to_message_id=message_id
         )
         return
     
@@ -187,16 +193,20 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
+            # Reply with native reply
             await update.message.reply_text(
                 "Please join my channels to use me, Due to overload only channel subscribers can use me!\nAfter joining just send me that link again to proceed!",
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
+                reply_to_message_id=message_id
             )
             return
     
     # Only process TikTok links
     if 'tiktok.com' not in text.lower():
+        # Reply with native reply
         await update.message.reply_text(
-            "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!"
+            "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!",
+            reply_to_message_id=message_id
         )
         return
 
@@ -206,8 +216,11 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Extract the URL (first word)
     raw_url = text.split()[0].strip()
 
-    # Send processing message
-    msg = await update.message.reply_text("⚡ Processing your TikTok video... Please wait.")
+    # Send processing message with native reply
+    msg = await update.message.reply_text(
+        "⚡ Processing your TikTok video... Please wait.",
+        reply_to_message_id=message_id
+    )
 
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"

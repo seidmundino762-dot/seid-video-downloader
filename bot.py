@@ -190,7 +190,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     raw_url = text.split()[0].strip()
 
-    # Start time tracking
     start_time = time.time()
 
     msg = await update.message.reply_text(
@@ -201,22 +200,40 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # ============ OPTIMIZED YT-DLP SETTINGS (50MB, FASTEST SPEED, ORIGINAL QUALITY) ============
+    # ============================================================
+    # ============ OPTIMIZED YT-DLP SETTINGS FOR SPEED ============
+    # ============================================================
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'socket_timeout': 15,           # Faster timeout
-        'retries': 2,                   # Fewer retries for speed
+        'socket_timeout': 15,
+        'retries': 2,
         'nocheckcertificate': True,
         'ignoreerrors': True,
         'no_color': True,
-        'format': 'best[ext=mp4]',       # ORIGINAL QUALITY - no reduction
+        
+        # ============ FORCE SINGLE PRE-MERGED MP4 ============
+        # Avoids separate video+audio download and CPU merging
+        'format': 'best[ext=mp4]/best',
+        
+        # ============ PARALLEL SEGMENT DOWNLOADING ============
+        # Downloads 10 media chunks in parallel for maximum speed
+        'concurrent_fragment_downloads': 10,
+        
+        # ============ BYPASS BANDWIDTH THROTTLING ============
+        # 10MB chunks prevent social platforms from throttling
+        'http_chunk_size': 10485760,
+        
+        # ============ BYPASS THROTTLING RE-EXTRACTION ============
+        # Auto re-extracts link if speed drops below 100KB/s
+        'throttledratelimit': 100000,
+        
+        # ============ ADDITIONAL SPEED OPTIMIZATIONS ============
         'fragment_retries': 2,
         'skip_download': False,
-        'http_chunk_size': 10485760,    # 10MB chunks for faster download
-        'concurrent_fragment_downloads': 5,  # Download multiple parts at once (FASTER!)
+        'buffersize': 10485760,  # 10MB buffer for faster writes
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -247,18 +264,16 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_event_loop()
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
-        # Check file size (max 50MB)
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
             file_size_mb = file_size / (1024 * 1024)
-            if file_size > 50 * 1024 * 1024:  # 50MB limit
+            if file_size > 50 * 1024 * 1024:
                 await msg.edit_text(
-                    f"Video is too large!\n"
+                    f"❌ Video is too large!\n"
                     f"Size: {file_size_mb:.1f}MB\n"
                     f"Limit: 50MB\n\n"
                     f"Please send a shorter TikTok video."
                 )
-                # Clean up the large file
                 if file_path and os.path.exists(file_path):
                     try:
                         os.remove(file_path)
@@ -266,7 +281,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         pass
                 return
 
-        await msg.edit_text("⬆️ Uploading to Telegram...")
+        await msg.edit_text("⬆️ Uploading...")
 
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             with open(file_path, 'rb') as media_file:
@@ -288,9 +303,8 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
             await msg.delete()
             
-            # Log download time
             elapsed = time.time() - start_time
-            logger.info(f"Download completed in {elapsed:.1f} seconds for {user_id}")
+            logger.info(f"Download completed in {elapsed:.1f} seconds")
         else:
             await msg.edit_text("Download failed: File was empty.")
 
@@ -300,16 +314,16 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if "rate-limit" in error_msg.lower():
             await msg.edit_text(
-                "Rate limit reached!\n"
+                "⏳ Rate limit reached!\n"
                 "Please wait 2-3 minutes and try again."
             )
         elif "private" in error_msg.lower():
             await msg.edit_text(
-                "This video is private.\n"
+                "🔒 This video is private.\n"
                 "Please send a public TikTok video link."
             )
         else:
-            await msg.edit_text(f"Download Failed: {error_msg[:150]}")
+            await msg.edit_text(f"❌ Download Failed: {error_msg[:150]}")
 
     finally:
         if file_path and os.path.exists(file_path):

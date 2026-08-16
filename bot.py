@@ -5,7 +5,7 @@ import logging
 import yt_dlp
 import time
 import threading
-import requests  # ← ADD THIS IMPORT
+import requests
 from flask import Flask, request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
@@ -20,34 +20,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ============ KEEP-ALIVE SERVICE (ADD THIS HERE) ============
+# ============ KEEP-ALIVE SERVICE ============
 def keep_alive():
-    """Keep the bot alive by pinging itself every 5 minutes."""
     while True:
         try:
-            # Ping your Render URL
             url = "https://seid-video-downloader.onrender.com"
-            response = requests.get(url, timeout=10)
-            logger.info(f"Keep-alive ping: {response.status_code}")
-            time.sleep(300)  # Wait 5 minutes
+            requests.get(url, timeout=10)
+            time.sleep(300)
         except Exception as e:
             logger.error(f"Keep-alive error: {e}")
-            time.sleep(60)  # If error, wait 1 minute and retry
+            time.sleep(60)
 
-# Start the keep-alive thread
 keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
 keep_alive_thread.start()
 logger.info("Keep-alive service started!")
 
-# ============ REST OF YOUR CODE ============
-
 # Bot token
 BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 
-# Channel username (without @)
+# Channel username
 CHANNEL_USERNAME = "TechWithSeidOfficial"
 
-# Store verified users in memory
+# Verified users cache
 verified_users = set()
 
 def load_verified_users():
@@ -127,7 +121,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 save_verified_users()
     
     welcome_text = (
-        f"Hello {user_name}! I can download (Below 40 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
+        f"Hello {user_name}! I can download (Below 50 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
     )
     
     keyboard = [
@@ -151,7 +145,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "1. Join our channel\n"
         "2. Send a TikTok video link\n"
         "3. Wait for download\n\n"
-        "Videos must be under 40MB."
+        "Videos must be under 50MB."
     )
 
 async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -196,6 +190,9 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     audio_only = "audio" in text.lower() or "mp3" in text.lower()
     raw_url = text.split()[0].strip()
 
+    # Start time tracking
+    start_time = time.time()
+
     msg = await update.message.reply_text(
         "⚡ Processing... Please wait.",
         reply_to_message_id=message_id
@@ -204,19 +201,29 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
+    # ============ OPTIMIZED YT-DLP SETTINGS (50MB, FASTEST SPEED, ORIGINAL QUALITY) ============
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
         'no_warnings': True,
         'noplaylist': True,
-        'socket_timeout': 20,
-        'retries': 3,
+        'socket_timeout': 15,           # Faster timeout
+        'retries': 2,                   # Fewer retries for speed
         'nocheckcertificate': True,
         'ignoreerrors': True,
         'no_color': True,
-        'format': 'best[ext=mp4]/best',
+        'format': 'best[ext=mp4]',       # ORIGINAL QUALITY - no reduction
+        'fragment_retries': 2,
+        'skip_download': False,
+        'http_chunk_size': 10485760,    # 10MB chunks for faster download
+        'concurrent_fragment_downloads': 5,  # Download multiple parts at once (FASTER!)
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
         },
         'extractor_args': {
             'tiktok': {
@@ -240,14 +247,26 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         loop = asyncio.get_event_loop()
         info_dict, file_path = await loop.run_in_executor(None, run_ytdlp)
 
+        # Check file size (max 50MB)
         if os.path.exists(file_path):
             file_size = os.path.getsize(file_path)
             file_size_mb = file_size / (1024 * 1024)
-            if file_size > 40 * 1024 * 1024:
-                await msg.edit_text(f"Video too large! {file_size_mb:.1f}MB > 40MB")
+            if file_size > 50 * 1024 * 1024:  # 50MB limit
+                await msg.edit_text(
+                    f"Video is too large!\n"
+                    f"Size: {file_size_mb:.1f}MB\n"
+                    f"Limit: 50MB\n\n"
+                    f"Please send a shorter TikTok video."
+                )
+                # Clean up the large file
+                if file_path and os.path.exists(file_path):
+                    try:
+                        os.remove(file_path)
+                    except Exception:
+                        pass
                 return
 
-        await msg.edit_text("⬆️ Uploading...")
+        await msg.edit_text("⬆️ Uploading to Telegram...")
 
         if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
             with open(file_path, 'rb') as media_file:
@@ -261,18 +280,36 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 else:
                     await update.message.reply_video(
                         video=media_file,
-                        caption=f"🎵 {info_dict.get('title', 'TikTok Video')}",
+                        caption=f"🎵 {info_dict.get('title', 'TikTok Video')}\n"
+                                f"👤 {info_dict.get('uploader', 'Unknown')}\n"
+                                f"📦 {file_size_mb:.1f}MB",
                         supports_streaming=True,
                         duration=info_dict.get('duration', 0)
                     )
             await msg.delete()
+            
+            # Log download time
+            elapsed = time.time() - start_time
+            logger.info(f"Download completed in {elapsed:.1f} seconds for {user_id}")
         else:
-            await msg.edit_text("Download failed.")
+            await msg.edit_text("Download failed: File was empty.")
 
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error: {error_msg}")
-        await msg.edit_text(f"Failed: {error_msg[:100]}")
+        
+        if "rate-limit" in error_msg.lower():
+            await msg.edit_text(
+                "Rate limit reached!\n"
+                "Please wait 2-3 minutes and try again."
+            )
+        elif "private" in error_msg.lower():
+            await msg.edit_text(
+                "This video is private.\n"
+                "Please send a public TikTok video link."
+            )
+        else:
+            await msg.edit_text(f"Download Failed: {error_msg[:150]}")
 
     finally:
         if file_path and os.path.exists(file_path):
@@ -291,7 +328,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id in verified_users:
         await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\nVideos must be under 40MB."
+            "Send me a TikTok video link to download.\n\n"
+            "Videos must be under 50MB."
         )
         return
     
@@ -301,13 +339,15 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if len(verified_users) % 10 == 0:
             save_verified_users()
         await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\nVideos must be under 40MB."
+            "Send me a TikTok video link to download.\n\n"
+            "Videos must be under 50MB."
         )
     else:
         keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "Please join my channel to use me!\nAfter joining click START again.",
+            "Please join my channel to use me!\n"
+            "After joining click START again to proceed.",
             reply_markup=reply_markup
         )
 

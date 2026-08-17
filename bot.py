@@ -119,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_member = await check_channel_membership_fast(user_id)
         if is_member:
             verified_users.add(user_id)
-            save_verified_users()  # Save immediately
+            save_verified_users()
             logger.info(f"User {user_id} verified and saved")
             is_verified = True
     
@@ -170,17 +170,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if user is verified
+    # ============ FIX: Always check membership FIRST, then download ============
     is_verified = user_id in verified_users
     
     if not is_verified:
+        # Check channel membership (with retry for first-time reliability)
         is_member = await check_channel_membership_fast(user_id)
+        
         if is_member:
+            # Save user as verified
             verified_users.add(user_id)
             save_verified_users()
             logger.info(f"User {user_id} verified during download")
             is_verified = True
         else:
+            # Not a member - ask to join
             keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -190,6 +194,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
+    # ============ NOW USER IS VERIFIED - DOWNLOAD IMMEDIATELY ============
     if 'tiktok.com' not in text.lower():
         await update.message.reply_text(
             "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!",

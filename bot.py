@@ -170,21 +170,17 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ============ FIX: Always check membership FIRST, then download ============
+    # Check if user is verified
     is_verified = user_id in verified_users
     
     if not is_verified:
-        # Check channel membership (with retry for first-time reliability)
         is_member = await check_channel_membership_fast(user_id)
-        
         if is_member:
-            # Save user as verified
             verified_users.add(user_id)
             save_verified_users()
             logger.info(f"User {user_id} verified during download")
             is_verified = True
         else:
-            # Not a member - ask to join
             keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -194,7 +190,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
-    # ============ NOW USER IS VERIFIED - DOWNLOAD IMMEDIATELY ============
     if 'tiktok.com' not in text.lower():
         await update.message.reply_text(
             "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!",
@@ -331,19 +326,21 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-# ==================== CALLBACK HANDLER ====================
+# ==================== FIXED CALLBACK HANDLER ====================
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     user_id = str(query.from_user.id)
+    user_name = query.from_user.first_name if query.from_user.first_name else "User"
     
     # Check if user is already verified
     if user_id in verified_users:
+        # Edit the message instead of sending new one
         await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\n"
-            "Videos must be under 50MB."
+            f"Send me a TikTok video link to download.\n\n"
+            f"Videos must be under 50MB."
         )
         return
     
@@ -353,16 +350,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         verified_users.add(user_id)
         save_verified_users()
         await query.edit_message_text(
-            "✅ You are verified!\n\n"
-            "Send me a TikTok video link to download.\n"
-            "Videos must be under 50MB."
+            f"✅ You are verified {user_name}!\n\n"
+            f"Send me a TikTok video link to download.\n"
+            f"Videos must be under 50MB."
         )
     else:
         keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
-            "Please join my channel to use me!\n"
-            "After joining click START again to proceed.",
+            f"Hello {user_name}! Please join my channel to use me!\n"
+            f"After joining click START again to proceed.",
             reply_markup=reply_markup
         )
 

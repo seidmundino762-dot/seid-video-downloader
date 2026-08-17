@@ -111,24 +111,30 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(user.id)
     message_id = update.message.message_id
     
+    # Check if user is already verified (in memory)
     is_verified = user_id in verified_users
     
+    # If not verified, check channel membership
     if not is_verified:
         is_member = await check_channel_membership_fast(user_id)
         if is_member:
             verified_users.add(user_id)
-            if len(verified_users) % 10 == 0:
-                save_verified_users()
+            save_verified_users()  # Save immediately
+            logger.info(f"User {user_id} verified and saved")
+            is_verified = True
     
+    # Build welcome text
     welcome_text = (
         f"Hello {user_name}! I can download (Below 50 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
     )
     
+    # Build keyboard based on verification status
     keyboard = [
         [InlineKeyboardButton("📥 START", callback_data="start_download")]
     ]
     
-    if user_id not in verified_users:
+    # Only show Join Channel button if NOT verified
+    if not is_verified:
         keyboard.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")])
     
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -164,12 +170,16 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    if user_id not in verified_users:
+    # Check if user is verified
+    is_verified = user_id in verified_users
+    
+    if not is_verified:
         is_member = await check_channel_membership_fast(user_id)
         if is_member:
             verified_users.add(user_id)
-            if len(verified_users) % 10 == 0:
-                save_verified_users()
+            save_verified_users()
+            logger.info(f"User {user_id} verified during download")
+            is_verified = True
         else:
             keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -200,9 +210,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # ============================================================
-    # ============ OPTIMIZED YT-DLP SETTINGS FOR SPEED ============
-    # ============================================================
+    # ============ OPTIMIZED YT-DLP SETTINGS ============
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -213,27 +221,13 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'nocheckcertificate': True,
         'ignoreerrors': True,
         'no_color': True,
-        
-        # ============ FORCE SINGLE PRE-MERGED MP4 ============
-        # Avoids separate video+audio download and CPU merging
         'format': 'best[ext=mp4]/best',
-        
-        # ============ PARALLEL SEGMENT DOWNLOADING ============
-        # Downloads 10 media chunks in parallel for maximum speed
         'concurrent_fragment_downloads': 10,
-        
-        # ============ BYPASS BANDWIDTH THROTTLING ============
-        # 10MB chunks prevent social platforms from throttling
         'http_chunk_size': 10485760,
-        
-        # ============ BYPASS THROTTLING RE-EXTRACTION ============
-        # Auto re-extracts link if speed drops below 100KB/s
         'throttledratelimit': 100000,
-        
-        # ============ ADDITIONAL SPEED OPTIMIZATIONS ============
         'fragment_retries': 2,
         'skip_download': False,
-        'buffersize': 10485760,  # 10MB buffer for faster writes
+        'buffersize': 10485760,
         'headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -340,6 +334,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_id = str(query.from_user.id)
     
+    # Check if user is already verified
     if user_id in verified_users:
         await query.edit_message_text(
             "Send me a TikTok video link to download.\n\n"
@@ -347,13 +342,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
+    # Check channel membership
     is_member = await check_channel_membership_fast(user_id)
     if is_member:
         verified_users.add(user_id)
-        if len(verified_users) % 10 == 0:
-            save_verified_users()
+        save_verified_users()
         await query.edit_message_text(
-            "Send me a TikTok video link to download.\n\n"
+            "✅ You are verified!\n\n"
+            "Send me a TikTok video link to download.\n"
             "Videos must be under 50MB."
         )
     else:

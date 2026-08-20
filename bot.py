@@ -111,7 +111,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(user.id)
     message_id = update.message.message_id
     
-    # Check if user is already verified (in memory)
+    # Check if user is already verified
     is_verified = user_id in verified_users
     
     # If not verified, check channel membership
@@ -128,12 +128,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Hello {user_name}! I can download (Below 50 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
     )
     
-    # Build keyboard based on verification status
+    # Build keyboard
     keyboard = [
         [InlineKeyboardButton("📥 START", callback_data="start_download")]
     ]
     
-    # Only show Join Channel button if NOT verified
     if not is_verified:
         keyboard.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")])
     
@@ -170,17 +169,19 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if user is verified
-    is_verified = user_id in verified_users
-    
-    if not is_verified:
+    # ============ VERIFICATION FLOW (FIXED) ============
+    # Check if user is already verified
+    if user_id not in verified_users:
+        # Check channel membership
         is_member = await check_channel_membership_fast(user_id)
+        
         if is_member:
+            # Save user as verified
             verified_users.add(user_id)
             save_verified_users()
-            logger.info(f"User {user_id} verified during download")
-            is_verified = True
+            logger.info(f"User {user_id} verified and saved during download")
         else:
+            # Not a member - ask to join
             keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -190,6 +191,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
     
+    # ============ NOW USER IS VERIFIED - DOWNLOAD ============
     if 'tiktok.com' not in text.lower():
         await update.message.reply_text(
             "No media found to download and send! If it's valid then maybe give a retry after 2-5 minutes!",
@@ -210,7 +212,6 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     unique_id = str(uuid.uuid4())[:8]
     output_template = f"dl_{unique_id}_%(id)s.%(ext)s"
 
-    # ============ OPTIMIZED YT-DLP SETTINGS ============
     ydl_opts = {
         'outtmpl': output_template,
         'quiet': True,
@@ -326,7 +327,7 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-# ==================== FIXED CALLBACK HANDLER ====================
+# ==================== CALLBACK HANDLER ====================
 
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -337,7 +338,6 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check if user is already verified
     if user_id in verified_users:
-        # Edit the message instead of sending new one
         await query.edit_message_text(
             f"Send me a TikTok video link to download.\n\n"
             f"Videos must be under 50MB."

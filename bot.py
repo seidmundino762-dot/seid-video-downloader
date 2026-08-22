@@ -41,7 +41,7 @@ BOT_TOKEN = "8629569320:AAFUXlbXdw4KzdVuD5TClFRQPDdfdVOtSQc"
 # Channel username
 CHANNEL_USERNAME = "TechWithSeidOfficial"
 
-# Verified users cache
+# Verified users cache (persists across restarts)
 verified_users = set()
 
 def load_verified_users():
@@ -69,6 +69,7 @@ membership_cache = {}
 CACHE_DURATION = 300
 
 async def check_channel_membership_fast(user_id):
+    # Check cache first
     if user_id in membership_cache:
         cached_time, is_member = membership_cache[user_id]
         if time.time() - cached_time < CACHE_DURATION:
@@ -111,7 +112,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(user.id)
     message_id = update.message.message_id
     
-    # Check if user is already verified
+    # Check if user is already verified (in memory or file)
     is_verified = user_id in verified_users
     
     # If not verified, check channel membership
@@ -128,11 +129,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Hello {user_name}! I can download (Below 50 mb) Videos from TikTok, just send me the link here, i may take a few minutes to send you the video."
     )
     
-    # Build keyboard
+    # Build keyboard based on verification status
     keyboard = [
         [InlineKeyboardButton("📥 START", callback_data="start_download")]
     ]
     
+    # Only show Join Channel button if NOT verified
     if not is_verified:
         keyboard.append([InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")])
     
@@ -169,19 +171,14 @@ async def download_and_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # ============ VERIFICATION FLOW (FIXED) ============
-    # Check if user is already verified
+    # ============ VERIFICATION: Check once, save forever ============
     if user_id not in verified_users:
-        # Check channel membership
         is_member = await check_channel_membership_fast(user_id)
-        
         if is_member:
-            # Save user as verified
             verified_users.add(user_id)
             save_verified_users()
             logger.info(f"User {user_id} verified and saved during download")
         else:
-            # Not a member - ask to join
             keyboard = [[InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{CHANNEL_USERNAME}")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
@@ -336,7 +333,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(query.from_user.id)
     user_name = query.from_user.first_name if query.from_user.first_name else "User"
     
-    # Check if user is already verified
+    # If already verified, show download instructions
     if user_id in verified_users:
         await query.edit_message_text(
             f"Send me a TikTok video link to download.\n\n"
